@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Big or personal files made by the scripts -- recreate them with the guides
+python/data/
+python/checkpoints/*
+!python/checkpoints/.gitkeep
+python/logs/*
+!python/logs/.gitkeep
+
+# results/ IS uploaded (tables, csv, plots are small)
+
+# The pre-rebuild code
+_old_version.zip
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

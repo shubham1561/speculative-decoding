@@ -1,0 +1,12 @@
+# PyTorch is installed by setup.bat first, with CUDA (GPU) support:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+# A plain "pip install torch" on Windows gives the CPU-only build.
+torch>=2.3
+
+numpy>=1.24
+tiktoken>=0.7          # GPT-2 tokenizer for your own models
+datasets>=2.18         # downloads TinyStories
+transformers>=4.45     # only for the pretrained pairs (GPT-2, Qwen)
+safetensors>=0.4
+matplotlib>=3.7        # benchmark plots
+pytest>=7.0            # tests
