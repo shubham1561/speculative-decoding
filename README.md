@@ -58,7 +58,7 @@ Why the output is still exactly the big model's: see [docs/THEORY.md](docs/THEOR
 | `python/train_scratch.py` | step 2 — train your target and draft |
 | `python/distill_draft.py` | step 3 — make the draft guess like the target |
 | `python/benchmark.py` | step 4 — measure the speedup, write tables and plots |
-| `python/generate.py` | watch it work on one prompt, in colour |
+| `python/generate.py` | type a few words and watch it complete them, in colour (`--interactive`) |
 | `python/smoke_test.py` | 1-minute check that everything works (tiny models, no download) |
 | `python/tests/` | correctness tests (`pytest`) |
 | `python/*.bat`, `run_overnight.ps1` | Windows launchers |
@@ -87,7 +87,7 @@ python train_scratch.py --model target     :: 2. your 51M-param target      (1-2
 python train_scratch.py --model draft      ::    your 15M-param draft       (20-40 min)
 python distill_draft.py --pair scratch     :: 3. draft learns from target   (20-40 min)
 python benchmark.py --pair scratch         :: 4. measure the speedup
-python generate.py --prompt "Once upon a time"   :: see it in colour
+python generate.py --interactive          :: type a few words, it completes them (in colour)
 ```
 
 Or everything in one go, overnight (4–6 hours, log in `python\logs\`):
@@ -126,7 +126,7 @@ Times are rough guesses for a 6 GB laptop GPU. Your log prints the real ETA.
 
 <!-- Add the plot:  ![speedup](python/results/<file>.png)  (results/*.png are uploaded) -->
 
-**Correctness:** 18 unit tests pass — greedy speculative output is token-for-token
+**Correctness:** 19 unit tests pass — greedy speculative output is token-for-token
 identical to the target alone for γ ∈ {0, 1, 2, 4, 7} even with a *random* draft,
 and sampled outputs match the target's exact distribution (total variation < 0.06
 over 4,000 samples), including with temperature + top-p.
@@ -167,7 +167,7 @@ python -m pytest
 |-----------|----------------|
 | `test_gpt.py` | the KV cache gives the same logits as a full pass; crop rolls back exactly |
 | `test_sampling.py` | temperature / top-k / top-p; the residual identity that makes the method exact |
-| `test_speculative.py` | greedy = target alone (any draft, any γ, context limit, end token, HuggingFace models); sampling distribution = target's |
+| `test_speculative.py` | greedy = target alone (any draft, any γ, context limit, end and stop tokens, HuggingFace models); sampling distribution = target's |
 
 ---
 

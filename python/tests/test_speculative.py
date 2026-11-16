@@ -97,3 +97,15 @@ def test_sampling_matches_target_distribution(warp):
     tv = 0.5 * (counts / n - exact).abs().sum().item()
     assert accepted > 0, "draft never accepted -- test would not exercise the rejection path"
     assert tv < 0.06, f"total variation {tv:.3f} too large"
+
+
+def test_stop_tokens_end_both_methods_at_the_same_place():
+    target, draft = own(0), own(1)
+    base = autoregressive_generate(target, [7, 8], 40)
+    stop = {base.tokens[12], base.tokens[20]}
+    first = min(i for i, t in enumerate(base.tokens) if t in stop)
+    for gamma in (1, 3, 6):
+        spec = speculative_generate(target, draft, [7, 8], 40, gamma=gamma, stop_ids=stop)
+        ar = autoregressive_generate(target, [7, 8], 40, stop_ids=stop)
+        assert spec.tokens == ar.tokens == base.tokens[: first + 1]
+        assert len(spec.sources) == len(spec.tokens)

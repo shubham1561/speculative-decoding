@@ -72,7 +72,7 @@ touch your real data, checkpoints or results. You want:
 ALL CHECKS PASSED
 ```
 
-`pytest` should end with `18 passed`. The test that takes longest samples
+`pytest` should end with `19 passed`. The test that takes longest samples
 4,000 outputs to check the probabilities — about 20 seconds.
 
 The tiny models write nonsense. That is expected: the smoke test checks that

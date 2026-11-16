@@ -68,6 +68,13 @@ def _sync(device):
         torch.cuda.synchronize(device)
 
 
+def _stop_set(eos_id, stop_ids):
+    stops = set(stop_ids or ())
+    if eos_id is not None:
+        stops.add(eos_id)
+    return stops
+
+
 def _prefill(lm, cache, seq):
     if len(seq) > 1:
         lm.forward(seq[:-1], cache)
@@ -80,11 +87,15 @@ def _budget(lm, seq_len):
 
 @torch.no_grad()
 def autoregressive_generate(target, prompt, max_new_tokens, temperature=0.0, top_k=0, top_p=1.0,
-                            eos_id=None, generator=None):
-    """The baseline: one big-model call per token."""
+                            eos_id=None, generator=None, stop_ids=None):
+    """The baseline: one big-model call per token.
+
+    Generation ends after eos_id or after any token in stop_ids (that token is kept).
+    """
     assert len(prompt) >= 1, "prompt must have at least one token"
     seq = list(prompt)
     stats = GenStats()
+    stops = _stop_set(eos_id, stop_ids)
     _sync(target.device)
     t0 = time.perf_counter()
     cache = target.new_cache()
@@ -99,7 +110,7 @@ def autoregressive_generate(target, prompt, max_new_tokens, temperature=0.0, top
         t = sample(warp_probs(logits, temperature, top_k, top_p), generator)
         seq.append(t)
         new.append(t)
-        if eos_id is not None and t == eos_id:
+        if t in stops:
             break
     _sync(target.device)
     stats.seconds = time.perf_counter() - t0
@@ -109,7 +120,7 @@ def autoregressive_generate(target, prompt, max_new_tokens, temperature=0.0, top
 
 @torch.no_grad()
 def speculative_generate(target, draft, prompt, max_new_tokens, gamma=4, temperature=0.0, top_k=0,
-                         top_p=1.0, eos_id=None, generator=None):
+                         top_p=1.0, eos_id=None, generator=None, stop_ids=None):
     """Speculative decoding. Same output distribution as autoregressive_generate(target, ...)."""
     assert len(prompt) >= 1, "prompt must have at least one token"
     assert gamma >= 0
@@ -118,6 +129,7 @@ def speculative_generate(target, draft, prompt, max_new_tokens, gamma=4, tempera
     seq = list(prompt)
     stats = GenStats()
     sources = []
+    stops = _stop_set(eos_id, stop_ids)
 
     _sync(dev)
     t0 = time.perf_counter()
@@ -185,8 +197,9 @@ def speculative_generate(target, draft, prompt, max_new_tokens, gamma=4, tempera
         if draft.cache_len(d_cache) > len(seq) - 1:
             draft.crop(d_cache, len(seq) - 1)
 
-        if eos_id is not None and eos_id in kept:
-            cut = len(seq) - len(kept) + kept.index(eos_id) + 1
+        hit = next((i for i, t in enumerate(kept) if t in stops), None)
+        if hit is not None:                            # stop exactly where normal decoding would
+            cut = len(seq) - len(kept) + hit + 1
             sources = sources[: cut - start_len]
             seq = seq[:cut]
             break

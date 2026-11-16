@@ -1,6 +1,50 @@
 # Guide 4 — Measure, read the results, put them on GitHub
 
-## 1. See it work on one prompt
+## 1. Try it: type a few words, the model completes them
+
+```bat
+python generate.py --interactive
+```
+
+It loads the models once, then waits for you. Type a few words, press Enter,
+and it finishes the sentence (example — your words and numbers will differ):
+
+```
+you> Lily found a red ball
+model> Lily found a red ball in the park. 
+speculative 410 tok/s, 9/12 draft tokens accepted (75%), 2.8 tokens per target call | normal 190 tok/s | speedup 2.16x | same text: YES
+```
+
+| Colour | Meaning |
+|--------|---------|
+| **green** | guessed by the draft and accepted by the target — came for free |
+| **yellow** | made by the target itself (a correction after a rejection, or the bonus token) |
+
+**The text is the same as normal decoding** — `same text: YES`. Speculative
+decoding does not write different or longer text; it writes the *same* text
+with fewer passes of the big model. The green words are what you saved.
+
+Commands while it runs:
+
+| Type | Effect |
+|------|--------|
+| `/until sentence` | stop at the end of the sentence (default) |
+| `/until line` | stop at the end of the line / paragraph |
+| `/until none` | keep going up to `/tokens` |
+| `/tokens 100` | most new tokens per completion (default 60) |
+| `/gamma 5` | draft tokens per round — try 1 to 8 and watch the speedup |
+| `/temp 0.8` | more varied completions (0 = always the most likely word) |
+| `/compare` | switch the normal-decoding comparison off/on (off = faster demo) |
+| `/quit` | exit; prints the overall speedup of the session |
+
+Your own models learned from children's stories, so they turn everything into a
+story. For any topic use the GPT-2 pair (Guide 3):
+
+```bat
+python generate.py --interactive --pair gpt2
+```
+
+**One prompt, no typing** (prints the full report):
 
 ```bat
 python generate.py --prompt "Once upon a time, a little dog"
@@ -8,15 +52,8 @@ python generate.py --pair gpt2 --prompt "The history of Rome" --gamma 5
 python generate.py --draft plain       :: compare with the distilled draft
 ```
 
-The text is printed in two colours:
-
-| Colour | Meaning |
-|--------|---------|
-| **green** | guessed by the draft and accepted by the target — came for free |
-| **yellow** | made by the target itself (a correction after a rejection, or the bonus token) |
-
-Then the two speeds, the speedup, and — at temperature 0 — whether the text is
-exactly the same as normal decoding. It should say **YES**.
+Short completions (one sentence, ~10–20 tokens) give noisy speed numbers.
+For the real measurement, use the benchmark below.
 
 ---
 
@@ -138,3 +175,4 @@ git push
 | greedy exact well below 100% | run `python -m pytest`; if the tests pass, it is GPU rounding — try `--device cpu` on a few prompts to confirm 100% there |
 | `no draft model available` | train or distil the draft first (Guide 2 / Guide 3) |
 | the colours show as `[92m` | use Windows Terminal, or ignore them — the numbers below are what matter |
+| the first interactive line takes a few seconds | it is finding which tokens end a sentence, once per `/until` mode |
