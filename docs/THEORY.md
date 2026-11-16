@@ -96,6 +96,20 @@ draft cost, then falls. Small c and large α push the best γ up. For
   the target cache is cropped to the new sequence minus its last token; the
   draft cache is cropped the same way, and any tokens it has not seen yet are
   fed in front of the next round's first draft call.
+- **One CPU–GPU sync per round.** Small models are limited by overhead, not maths: a
+  51M-parameter pass takes ~6.6 ms on a laptop GPU, and every time Python reads a value
+  back from the GPU (`.item()`, an `if` on a GPU tensor) the GPU queue drains and waits.
+  The first version did that twice per draft token, which cancelled the whole gain
+  (1.00× measured vs 1.47× theory). Now draft tokens are fed back to the draft as GPU
+  tensors, accept/reject is one vectorised step (`cumprod` of the accept flags gives the
+  number accepted; the residual rows are built for all positions and row *n* is
+  sampled), and the round's tokens are read back with a single `.tolist()`. Greedy
+  decoding skips softmax entirely (argmax only). The baseline reads one token per step,
+  as any streaming decoder (and HF's `generate`) does to check for a stop token.
+- **Precision.** fp16 can flip a near-tie between two tokens, because a 1-token pass and a
+  (γ+1)-token pass use different kernels. Your own small models run in fp32 (`"dtype":
+  "float32"` in `config.PAIRS`); it costs almost nothing at this size and keeps greedy
+  output identical. GPT-2 large stays in fp16 for memory and speed.
 - **Own KV cache** (`specdec/gpt.py`): pre-allocated per layer, so a rollback is
   a pointer move. Multi-token passes on top of a cache use an explicit causal
   mask (`key position ≤ query position`).

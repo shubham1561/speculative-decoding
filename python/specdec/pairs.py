@@ -18,8 +18,9 @@ def load_hf_model(name_or_path, device, dtype):
 
 def inference_dtype(device, preferred=None):
     """fp16 on the GPU by default: more precise than bf16, so greedy speculative output matches
-    normal decoding more often. A pair can ask for "bfloat16" in config.PAIRS (Qwen is trained in bf16)."""
-    if device.type != "cuda":
+    normal decoding more often. A pair can ask for "float32" (small models: exact greedy match, and
+    they are limited by overhead, not maths) or "bfloat16" (Qwen is trained in bf16) in config.PAIRS."""
+    if device.type != "cuda" or preferred == "float32":
         return torch.float32
     if preferred == "bfloat16" and torch.cuda.is_bf16_supported():
         return torch.bfloat16

@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 import torch
 
-from .sampling import warp_probs, sample, residual
+from .sampling import warp_probs
 
 
 @dataclass
@@ -91,11 +91,14 @@ def autoregressive_generate(target, prompt, max_new_tokens, temperature=0.0, top
     """The baseline: one big-model call per token.
 
     Generation ends after eos_id or after any token in stop_ids (that token is kept).
+    Like every streaming decoder (and HF's generate), it reads each token back to the
+    CPU once per step, to check for a stop token.
     """
     assert len(prompt) >= 1, "prompt must have at least one token"
     seq = list(prompt)
     stats = GenStats()
     stops = _stop_set(eos_id, stop_ids)
+    greedy = temperature <= 0
     _sync(target.device)
     t0 = time.perf_counter()
     cache = target.new_cache()
@@ -107,7 +110,10 @@ def autoregressive_generate(target, prompt, max_new_tokens, temperature=0.0, top
     while len(new) < max_new_tokens:
         logits = target.forward([seq[-1]], cache)[-1]
         stats.target_calls += 1
-        t = sample(warp_probs(logits, temperature, top_k, top_p), generator)
+        if greedy:
+            t = int(logits.argmax())
+        else:
+            t = int(torch.multinomial(warp_probs(logits, temperature, top_k, top_p), 1, generator=generator))
         seq.append(t)
         new.append(t)
         if t in stops:
@@ -121,11 +127,17 @@ def autoregressive_generate(target, prompt, max_new_tokens, temperature=0.0, top
 @torch.no_grad()
 def speculative_generate(target, draft, prompt, max_new_tokens, gamma=4, temperature=0.0, top_k=0,
                          top_p=1.0, eos_id=None, generator=None, stop_ids=None):
-    """Speculative decoding. Same output distribution as autoregressive_generate(target, ...)."""
+    """Speculative decoding. Same output distribution as autoregressive_generate(target, ...).
+
+    Speed: inside a round every token stays on the GPU -- draft tokens are fed back as
+    tensors and accept/reject is one vectorised step -- so the CPU waits for the GPU
+    only ONCE per round, when it reads the kept tokens.
+    """
     assert len(prompt) >= 1, "prompt must have at least one token"
     assert gamma >= 0
     vocab = min(target.vocab_size, draft.vocab_size)   # HF models sometimes pad the vocab differently
     dev = target.device
+    greedy = temperature <= 0
     seq = list(prompt)
     stats = GenStats()
     sources = []
@@ -147,40 +159,61 @@ def speculative_generate(target, draft, prompt, max_new_tokens, gamma=4, tempera
                 g = min(g, room)
         if g < 0:
             break
+        last = torch.tensor([seq[-1]], dtype=torch.long, device=dev)   # GPU is idle here: cheap
 
-        # 1. DRAFT ---------------------------------------------------------
-        xs, qs = [], []
+        # 1. DRAFT: g tokens, fed back as GPU tensors (no CPU round trip) ---------
+        xs = torch.empty(0, dtype=torch.long, device=dev)
+        qs = None
         if g > 0:
             catch_up = seq[draft.cache_len(d_cache):]  # tokens the draft cache has not seen (incl. last)
-            logits = draft.forward(catch_up, d_cache)[-1]
+            logits = draft.forward(catch_up, d_cache)[-1, :vocab]
             stats.draft_calls += 1
+            x_list, q_list = [], []
             for i in range(g):
-                q = warp_probs(logits[:vocab], temperature, top_k, top_p)
-                x = sample(q, generator)
-                xs.append(x)
-                qs.append(q)
+                if greedy:
+                    x = logits.argmax(-1, keepdim=True)
+                else:
+                    q = warp_probs(logits, temperature, top_k, top_p)
+                    x = torch.multinomial(q, 1, generator=generator)
+                    q_list.append(q)
+                x_list.append(x)
                 if i < g - 1:
-                    logits = draft.forward([x], d_cache)[-1]
+                    logits = draft.forward(x, d_cache)[-1, :vocab]
                     stats.draft_calls += 1
+            xs = torch.cat(x_list)
+            qs = torch.stack(q_list) if q_list else None
 
         # 2. VERIFY: one big-model pass over [last, x1..xg] --------------------
-        t_logits = target.forward([seq[-1]] + xs, t_cache)
+        t_logits = target.forward(torch.cat([last, xs]), t_cache)[:, :vocab]
         stats.target_calls += 1
-        ps = warp_probs(t_logits[:, :vocab], temperature, top_k, top_p)
 
-        # 3. ACCEPT / REJECT -------------------------------------------------
-        n = 0
-        new_tok = None
-        for i in range(g):
-            x = xs[i]
-            u = torch.rand((), device=ps.device, generator=generator)
-            if u * qs[i][x] < ps[i][x]:                # accept with prob min(1, p/q)
-                n += 1
+        # 3. ACCEPT / REJECT, all on the GPU ----------------------------------
+        if greedy:
+            # accept x_i while it equals the target's own choice; then take the target's choice
+            choice = t_logits.argmax(-1)                                   # (g+1,)
+            n = (choice[:g] == xs).long().cumprod(0).sum()
+            new_tok = choice.index_select(0, n.view(1))
+        else:
+            ps = warp_probs(t_logits, temperature, top_k, top_p)          # (g+1, V)
+            if g > 0:
+                idx = xs.view(-1, 1)
+                px = ps[:g].gather(1, idx).squeeze(1)
+                qx = qs.gather(1, idx).squeeze(1)
+                u = torch.rand(g, device=ps.device, generator=generator)
+                accept = u * qx < px                                       # prob min(1, p/q)
+                n = accept.long().cumprod(0).sum()                         # accepted before 1st reject
+                res = torch.clamp(ps[:g] - qs, min=0.0)                    # residual max(p-q, 0) ...
+                tot = res.sum(-1, keepdim=True)
+                res = torch.where(tot > 0, res / tot.clamp_min(1e-30), ps[:g])   # ... normalised
+                dists = torch.cat([res, ps[g:]])        # row n: residual if rejected, p_(g+1) if not
             else:
-                new_tok = sample(residual(ps[i], qs[i]), generator)
-                break
-        if new_tok is None:                            # all accepted -> bonus token for free
-            new_tok = sample(ps[g], generator)
+                n = torch.zeros((), dtype=torch.long, device=ps.device)
+                dists = ps
+            new_tok = torch.multinomial(dists.index_select(0, n.view(1)), 1, generator=generator).view(1)
+
+        # the ONE CPU <-> GPU sync of the round
+        out = torch.cat([xs, n.view(1), new_tok]).tolist()
+        xs_cpu, n, new_tok = out[:g], out[g], out[g + 1]
 
         stats.rounds += 1
         stats.proposed += g
@@ -188,7 +221,7 @@ def speculative_generate(target, draft, prompt, max_new_tokens, gamma=4, tempera
         stats.rejected += int(n < g)
         stats.accepted_per_round.append(n)
 
-        kept = xs[:n] + [new_tok]
+        kept = xs_cpu[:n] + [new_tok]
         sources += ["draft"] * n + ["target"]
         seq.extend(kept)
 

@@ -59,6 +59,7 @@ PRESETS = {
 PAIRS = {
     "scratch": {
         "tokenizer": "gpt2",
+        "dtype": "float32",                      # small models: fp32 costs ~nothing and keeps greedy exact
         "target": ("own", os.path.join(CKPT_DIR, "target.pt")),
         "drafts": {
             "plain": ("own", os.path.join(CKPT_DIR, "draft.pt")),

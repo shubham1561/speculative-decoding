@@ -4,6 +4,7 @@ The decoding loops only ever call these four things:
 
     cache  = lm.new_cache()
     logits = lm.forward(token_ids, cache)   # (len(token_ids), vocab), float32; appends to cache
+                                            # token_ids: a list, or a tensor already on the device
     lm.crop(cache, n)                       # keep the first n cached tokens
     lm.cache_len(cache)
 
@@ -12,6 +13,13 @@ causal LM (GPT-2, Qwen, Pythia, ...). Nothing from HuggingFace's own speculative
 decoding (`assistant_model`) is used anywhere.
 """
 import torch
+
+
+def _as_ids(ids, device):
+    """A list of token ids or a GPU tensor of them -> (1, T) tensor. Tensors stay on the GPU (no sync)."""
+    if torch.is_tensor(ids):
+        return ids.to(device=device, dtype=torch.long).view(1, -1)
+    return torch.as_tensor(ids, dtype=torch.long, device=device).view(1, -1)
 
 
 class OwnGPT:
@@ -30,8 +38,7 @@ class OwnGPT:
 
     @torch.no_grad()
     def forward(self, ids, cache):
-        x = torch.as_tensor(ids, dtype=torch.long, device=self.device).view(1, -1)
-        logits, _ = self.model(x, cache=cache)
+        logits, _ = self.model(_as_ids(ids, self.device), cache=cache)
         return logits[0].float()
 
     def crop(self, cache, n):
@@ -68,8 +75,7 @@ class HFModel:
 
     @torch.no_grad()
     def forward(self, ids, cache):
-        x = torch.as_tensor(ids, dtype=torch.long, device=self.device).view(1, -1)
-        out = self.model(input_ids=x, past_key_values=cache.c, use_cache=True)
+        out = self.model(input_ids=_as_ids(ids, self.device), past_key_values=cache.c, use_cache=True)
         cache.c = out.past_key_values
         return out.logits[0].float()
 
