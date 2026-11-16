@@ -111,20 +111,38 @@ Times are rough guesses for a 6 GB laptop GPU. Your log prints the real ETA.
 
 ## Results
 
-*Fill this in from `python\results\RESULTS.md` after your runs (GUIDE_4, section 4).*
+**GPU:** NVIDIA GeForce RTX 4050 Laptop (6 GB), fp16 — 20 prompts × 128 new tokens.
+Speedup = tokens/s with speculative decoding ÷ tokens/s with normal decoding, same
+target, same prompts. Full tables: [`python/results/RESULTS.md`](python/results/RESULTS.md).
 
-**GPU:** _(name, VRAM)_ — 20 prompts × 128 new tokens, speedup = tokens/s speculative ÷ tokens/s normal.
+| Pair | Target / draft | Prompts | Draft | Temp | Best γ | Accepted | Tokens per target pass | Speedup |
+|------|----------------|---------|-------|-----:|-------:|---------:|-----------------------:|--------:|
+| gpt2 | 774M / 82M | general | plain | 0 | 5 | 56% | 3.74 | 1.72× |
+| gpt2 | 774M / 82M | general | **distilled** | 0 | 2 | 77% | 2.53 | **1.91×** |
+| gpt2 | 774M / 82M | stories | plain | 0 | 3 | 65% | 2.94 | 1.62× |
+| gpt2 | 774M / 82M | stories | **distilled** | 0 | 5 | 59% | 3.90 | **1.80×** |
+| gpt2 | 774M / 82M | stories | distilled | 0.8 | 2 | 55% | 2.08 | 1.33× |
+| scratch | 51M / 15M | stories | plain | 0 | 2 | 64% | 2.26 | 0.96× |
+| scratch | 51M / 15M | stories | distilled | 0 | 3 | 59% | 2.75 | 1.00× |
 
-| Pair | Target / draft | Draft | Temp | Best γ | Accepted | Speedup | Greedy output identical |
-|------|----------------|-------|-----:|-------:|---------:|--------:|:-----------------------:|
-| scratch | 51M / 15M | plain | 0 | | | | |
-| scratch | 51M / 15M | distilled | 0 | | | | |
-| scratch | 51M / 15M | distilled | 0.8 | | | | — |
-| gpt2 (stories) | 774M / 82M | plain | 0 | | | | |
-| gpt2 (stories) | 774M / 82M | distilled | 0 | | | | |
-| gpt2 (general) | 774M / 82M | distilled | 0 | | | | |
+![GPT-2 large + DistilGPT-2 on story prompts: speedup and acceptance against γ](python/results/gpt2_stories_2026-11-17_0139.png)
 
-<!-- Add the plot:  ![speedup](python/results/<file>.png)  (results/*.png are uploaded) -->
+What the numbers say:
+
+- **Up to 1.91× faster on GPT-2 large**, with the same output. Normal decoding: 19 tokens/s; speculative: up to 36.
+- **Distillation works.** Distilling DistilGPT-2 towards GPT-2 large on TinyStories (1,000 steps, 45 min)
+  raised the measured acceptance from 58.7% to 73.9%, and the best greedy speedup on story prompts
+  from 1.62× to 1.80×. It did not hurt on general prompts — it helped there too (1.72× → 1.91×).
+- **Small models don't benefit.** My own 51M target makes 2.75 tokens per pass with the distilled
+  draft — the algorithm works — but one pass takes only ~6.6 ms, so per-token Python and GPU-sync
+  overhead in the decoding loop cancels the gain (1.00× measured vs 1.47× theory). Speculative
+  decoding pays off when the target is expensive per pass.
+- **Measured stays below theory** (1.80× vs 2.12× at γ = 5): the formula ignores that verifying
+  γ+1 tokens costs a bit more than one, and the loop's own overhead.
+- **Temperature 0.8 roughly halves the gain** (≈1.3×): sampled drafts agree with the target less often.
+- **Greedy output identical in 18 of 20 prompts on the GPU.** The other 2 are fp16 rounding flipping
+  a near-tie (1 token vs γ+1 tokens per pass take different kernels). Re-run in fp32 on CPU, the
+  scratch pair matches on **20 of 20**.
 
 **Correctness:** 19 unit tests pass — greedy speculative output is token-for-token
 identical to the target alone for γ ∈ {0, 1, 2, 4, 7} even with a *random* draft,
