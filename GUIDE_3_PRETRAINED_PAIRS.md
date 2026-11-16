@@ -27,6 +27,10 @@ This measures the stock DistilGPT-2 as a draft for GPT-2 large on any-topic prom
 
 ## 2. Distill DistilGPT-2 towards GPT-2 large (45–90 minutes)
 
+**Easiest:** double-click `python\run_gpt2.bat`. It checks the internet, then runs
+this step and both benchmarks of section 3 (1.5–2 hours, your own models are not
+touched). Or type the commands below.
+
 You need the TinyStories data from Guide 2, step 1 (it uses the same GPT-2 tokens).
 
 ```bat

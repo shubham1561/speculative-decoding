@@ -22,6 +22,8 @@
    7  benchmark.py --pair gpt2            stories + general prompts (30-60 min)
    8  benchmark.py --pair qwen            only with -WithQwen (downloads ~4 GB)
 
+ -OnlyGpt2 runs steps 6-7 only (run_gpt2.bat does that with a double-click).
+
  Every step can be re-run safely. Training steps use --resume, so if the PC
  restarts in the night, run the script again: finished steps end at once and
  an unfinished one continues from its last checkpoint. Data is not
@@ -36,6 +38,7 @@
 
 param(
     [switch]$SkipGpt2,         # skip steps 6-7 (no big downloads)
+    [switch]$OnlyGpt2,         # only steps 6-7 (your own models are already trained)
     [switch]$WithQwen,         # also run step 8
     [int]$MaxStories = 0       # step 1: 0 = all of TinyStories; e.g. 300000 for a quicker run
 )
@@ -85,8 +88,13 @@ try {
     } else { $results["1 prepare data"] = "skipped (data already there)" }
 
     if ($dataOk) {
-        $targetOk = Step "2 train target" @("train_scratch.py", "--model", "target", "--resume")
-        $draftOk  = Step "3 train draft"  @("train_scratch.py", "--model", "draft", "--resume")
+        if ($OnlyGpt2) {
+            $targetOk = $false
+            $results["2-5 own models"] = "skipped (-OnlyGpt2)"
+        } else {
+            $targetOk = Step "2 train target" @("train_scratch.py", "--model", "target", "--resume")
+            $draftOk  = Step "3 train draft"  @("train_scratch.py", "--model", "draft", "--resume")
+        }
         if ($targetOk -and $draftOk) {
             Step "4 distill draft (scratch)" @("distill_draft.py", "--pair", "scratch", "--resume") | Out-Null
             Step "5 benchmark scratch" @("benchmark.py", "--pair", "scratch") | Out-Null
