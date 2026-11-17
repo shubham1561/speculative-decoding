@@ -58,6 +58,8 @@ Why the output is still exactly the big model's: see [docs/THEORY.md](docs/THEOR
 | `python/train_scratch.py` | step 2 — train your target and draft |
 | `python/distill_draft.py` | step 3 — make the draft guess like the target |
 | `python/benchmark.py` | step 4 — measure the speedup, write tables and plots |
+| `START_DEMO.bat` | **double-click: opens the browser demo** (normal vs speculative, side by side) |
+| `python/demo_server.py`, `python/demo/` | the demo's local server and page |
 | `python/generate.py` | type a few words and watch it complete them, in colour (`--interactive`) |
 | `python/smoke_test.py` | 1-minute check that everything works (tiny models, no download) |
 | `python/tests/` | correctness tests (`pytest`) |
@@ -89,6 +91,10 @@ python distill_draft.py --pair scratch     :: 3. draft learns from target   (20-
 python benchmark.py --pair scratch         :: 4. measure the speedup
 python generate.py --interactive          :: type a few words, it completes them (in colour)
 ```
+
+**The demo:** double-click **`START_DEMO.bat`** in the repo folder. It loads the models and opens
+a page in your browser where you type a prompt and watch normal and speculative decoding race
+side by side, with the draft's accepted tokens in green (GUIDE_4, section 1).
 
 Or everything in one go, overnight (4–6 hours, log in `python\logs\`):
 

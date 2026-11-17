@@ -26,7 +26,7 @@ import torch
 
 import config
 from specdec.data import get_tokenizer
-from specdec.decoding import autoregressive_generate, speculative_generate
+from specdec.decoding import autoregressive_generate, speculative_generate, warm_up
 from specdec.pairs import load_lm, exists, inference_dtype
 from specdec.training import pick_device
 
@@ -87,10 +87,13 @@ class Completer:
         prompt = prompt[-max(1, room):]                       # keep the end of a very long prompt
         kw = dict(temperature=temperature, top_k=a.top_k, top_p=a.top_p, eos_id=self.eos,
                   stop_ids=self.stops(until))
+        self.stops(until)                                     # (first use: find the stop tokens, untimed)
+        warm_up([self.target, self.draft])                    # fair timing: GPU at full clock first
         g = torch.Generator(device=self.dev).manual_seed(seed)
         spec = speculative_generate(self.target, self.draft, prompt, max_new_tokens, gamma, generator=g, **kw)
         base = None
         if compare:
+            warm_up([self.target])
             g = torch.Generator(device=self.dev).manual_seed(seed)
             base = autoregressive_generate(self.target, prompt, max_new_tokens, generator=g, **kw)
         t = self.totals
@@ -108,7 +111,9 @@ class Completer:
 
     def report(self, spec, base, temperature, short=False):
         s = spec.stats
-        acc = f"{s.accepted}/{s.proposed} draft tokens accepted ({s.acceptance_rate:.0%})" if s.proposed else "no draft tokens"
+        free = spec.sources.count("draft")
+        acc = (f"{s.acceptance_rate:.0%} of draft guesses accepted, {free} of {s.new_tokens} tokens free"
+               if s.proposed else "no draft tokens")
         if short:
             line = f"{DIM}speculative {s.tokens_per_second:.0f} tok/s, {acc}, {s.tokens_per_target_call:.2f} tokens per target call"
             if base:

@@ -2,6 +2,22 @@
 
 ## 1. Try it: type a few words, the model completes them
 
+**Easiest — the browser demo.** Double-click **`START_DEMO.bat`** in the repo folder.
+A black window opens (the local server — keep it open), the models load (10–30 s),
+and your browser opens `http://127.0.0.1:8000`. Type a prompt and press Enter:
+
+- **left:** normal decoding, one big-model pass per token
+- **right:** speculative decoding — green = draft guess accepted, yellow = written by the big model
+- both runs are replayed at the speed they were measured, so you see which finishes first
+- below: speedup, big-model passes (e.g. *42 vs 83*), share of draft guesses accepted, and
+  whether the text is identical
+
+Change the model pair, draft, γ, temperature and length on the page. The GPU is warmed up
+before each timed run, so the comparison is fair. Close the black window to stop the demo.
+The page only works on your own computer (the server listens on 127.0.0.1).
+
+**In the terminal** (same thing, text only):
+
 ```bat
 python generate.py --interactive
 ```

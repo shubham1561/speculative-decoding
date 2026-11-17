@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speculative Decoding Demo</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #14161a; --muted: #636a75; --faint: #9aa1ab;
+  --line: #e3e6eb; --accent: #3b5bdb; --accent-ink: #ffffff;
+  --draft-bg: #d3f4dc; --draft-ink: #0d5c2a; --target-bg: #ffe8b3; --target-ink: #6b4400;
+  --good: #1f8a4c; --bad: #c2410c; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --panel: #171a21; --ink: #e8eaef; --muted: #a0a7b3; --faint: #6c7480;
+    --line: #2a2f39; --accent: #6d8bff; --accent-ink: #0f1115;
+    --draft-bg: #12452a; --draft-ink: #b8f5cb; --target-bg: #4d3a0c; --target-ink: #ffe2a3;
+    --good: #4ade80; --bad: #fb923c; --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; }
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+h1 { font-size: 24px; margin: 0; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin-top: 2px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+  background: var(--panel); border: 1px solid var(--line); font-size: 13px; color: var(--muted); box-shadow: var(--shadow); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.dot.ok { background: var(--good); } .dot.busy { background: #e0a400; animation: pulse 1s infinite; } .dot.err { background: var(--bad); }
+@keyframes pulse { 50% { opacity: .3; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; box-shadow: var(--shadow); }
+.prompt-row { display: flex; gap: 10px; align-items: stretch; }
+textarea { flex: 1; resize: vertical; min-height: 54px; max-height: 200px; padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; font-size: 16px; }
+textarea:focus, select:focus, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 14px; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; padding: 0 22px; min-width: 120px; }
+button:disabled { opacity: .5; cursor: default; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.chip { font-size: 13px; padding: 5px 11px; border-radius: 999px; color: var(--muted); }
+.chip:hover { color: var(--ink); border-color: var(--faint); }
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px 18px; margin-top: 16px;
+  padding-top: 16px; border-top: 1px solid var(--line); }
+label.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+label.field b { color: var(--ink); font-weight: 600; }
+select { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; border: 0; border-radius: 0; padding: 7px 4px; font-size: 13px; background: var(--bg); color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); }
+.race { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
+@media (max-width: 760px) { .race { grid-template-columns: 1fr; } .prompt-row { flex-direction: column; } button.primary { padding: 12px; } }
+.lane h2 { font-size: 16px; margin: 0; }
+.lane .how { color: var(--muted); font-size: 13px; margin: 2px 0 12px; }
+.meter { display: flex; justify-content: space-between; align-items: baseline; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+.clock { font-size: 26px; font-weight: 650; letter-spacing: -.02em; }
+.meter .small { color: var(--muted); font-size: 13px; text-align: right; }
+.bar { height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; margin-bottom: 12px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 99px; }
+.lane.spec .bar i { background: var(--good); }
+.text { min-height: 150px; white-space: pre-wrap; word-wrap: break-word; font-size: 16px; line-height: 1.75;
+  padding: 12px 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+.text .p { color: var(--muted); }
+.text .t { border-radius: 4px; padding: 1px 0; }
+.text .d { background: var(--draft-bg); color: var(--draft-ink); }
+.text .g { background: var(--target-bg); color: var(--target-ink); }
+.text.rounds .rs { box-shadow: -2px 0 0 var(--faint); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+@media (max-width: 760px) { .stats { grid-template-columns: 1fr 1fr; } }
+.stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; box-shadow: var(--shadow); }
+.stat .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.stat .v { font-size: 26px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.stat .n { font-size: 13px; color: var(--muted); }
+.v.good { color: var(--good); } .v.bad { color: var(--bad); }
+.note { margin-top: 16px; font-size: 14px; color: var(--muted); }
+.note b { color: var(--ink); }
+.msg { margin-top: 12px; padding: 10px 14px; border-radius: 10px; font-size: 14px; display: none; }
+.msg.show { display: block; } .msg.err { background: rgba(194,65,12,.12); color: var(--bad); } .msg.info { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.actions { display: flex; gap: 10px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.check { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+details { margin-top: 18px; } summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+details ul { color: var(--muted); font-size: 14px; padding-left: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Speculative decoding</h1>
+      <div class="sub">A small draft model guesses ahead, the big model checks all guesses in one pass. Same text, fewer big-model passes.</div>
+    </div>
+    <div class="pill" id="status"><span class="dot busy" id="dot"></span><span id="statusText">Connecting…</span></div>
+  </header>
+
+  <section class="card">
+    <div class="prompt-row">
+      <textarea id="prompt" rows="2" placeholder="Type a few words… (Enter to run, Shift+Enter for a new line)">The history of the Roman Empire</textarea>
+      <button class="primary" id="run" disabled>Run</button>
+    </div>
+    <div class="chips" id="chips"></div>
+
+    <div class="settings">
+      <label class="field">Model pair
+        <select id="pair"></select>
+      </label>
+      <label class="field">Draft model
+        <select id="draft"></select>
+      </label>
+      <label class="field"><span>Draft guesses per round (γ): <b id="gammaV">4</b></span>
+        <input type="range" id="gamma" min="1" max="8" step="1" value="4">
+      </label>
+      <label class="field"><span>Temperature: <b id="tempV">0</b> <span id="tempHint">(always the most likely word)</span></span>
+        <input type="range" id="temp" min="0" max="1.2" step="0.1" value="0">
+      </label>
+      <div class="field" style="grid-column: 1 / -1">Length
+        <div class="seg" id="length">
+          <button data-until="sentence" data-max="64">One sentence</button>
+          <button data-until="line" data-max="128">Paragraph</button>
+          <button data-until="none" data-max="64">64 tokens</button>
+          <button data-until="none" data-max="128" class="on">128 tokens</button>
+        </div>
+      </div>
+    </div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <section class="race">
+    <div class="card lane">
+      <h2>Normal decoding</h2>
+      <div class="how">The big model alone: one full pass for every token.</div>
+      <div class="meter"><span class="clock" id="nClock">0.00 s</span><span class="small" id="nInfo">&nbsp;</span></div>
+      <div class="bar"><i id="nBar"></i></div>
+      <div class="text" id="nText"><span class="p">The result appears here.</span></div>
+    </div>
+    <div class="card lane spec">
+      <h2>Speculative decoding</h2>
+      <div class="how">Draft guesses γ tokens, big model checks them all in one pass.</div>
+      <div class="meter"><span class="clock" id="sClock">0.00 s</span><span class="small" id="sInfo">&nbsp;</span></div>
+      <div class="bar"><i id="sBar"></i></div>
+      <div class="text" id="sText"><span class="p">The result appears here.</span></div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--draft-bg)"></span>guessed by the draft, accepted (free)</span>
+        <span><span class="sw" style="background:var(--target-bg)"></span>written by the big model (1 per round)</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button id="replay" disabled>▶ Replay the race</button>
+    <label class="check"><input type="checkbox" id="showRounds"> show where each round starts</label>
+  </div>
+
+  <section class="stats">
+    <div class="stat"><div class="k">Speedup</div><div class="v" id="kSpeed">–</div><div class="n" id="kSpeedN">tokens/s, speculative ÷ normal</div></div>
+    <div class="stat"><div class="k">Big-model passes</div><div class="v" id="kPass">–</div><div class="n" id="kPassN">speculative vs normal</div></div>
+    <div class="stat"><div class="k">Draft guesses accepted</div><div class="v" id="kAcc">–</div><div class="n" id="kAccN">&nbsp;</div></div>
+    <div class="stat"><div class="k">Same text?</div><div class="v" id="kSame">–</div><div class="n" id="kSameN">greedy: must be identical</div></div>
+  </section>
+
+  <details>
+    <summary>How to read this</summary>
+    <ul>
+      <li>Both runs use the <b>same big model and the same prompt</b>. The race replays them at the speed they were measured on your GPU.</li>
+      <li>Every round ends with exactly one yellow token, so <b>yellow tokens = big-model passes</b>. Green tokens cost only a cheap draft pass.</li>
+      <li>At temperature 0 the two texts must be identical — speculative decoding changes the speed, never the words. Above 0 both are random samples from the same distribution, so they can differ.</li>
+      <li>Very short outputs (one short sentence) and prompts the draft finds hard can be slower: there is a fixed start-up cost and wasted guesses. Long, ordinary text shows the real speedup — the full benchmark measured 1.7–1.9× on GPT-2 large.</li>
+    </ul>
+  </details>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const EXAMPLES = {
+  gpt2: ["The history of the Roman Empire", "In computer science, a hash table is", "The best way to learn a new language is",
+         "Photosynthesis is the process by which", "def fibonacci(n):\n    "],
+  scratch: ["Once upon a time, there was a little girl named Lily.", "Tom found a big red ball in the park.",
+            "The little dog was very sad because", "One day, Mia and her mom went to the beach."],
+};
+let pairs = [], last = null, anim = null, wanted = null;
+
+function msg(text, kind = "info") { const m = $("msg"); m.textContent = text || ""; m.className = "msg" + (text ? " show " + kind : ""); }
+function setStatus(kind, text) { $("dot").className = "dot " + kind; $("statusText").textContent = text; }
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function poll() {
+  try {
+    const s = await api("/api/status");
+    pairs = s.pairs;
+    fillPairs();
+    const cur = currentPair();
+    if (s.error) { setStatus("err", s.error); msg(s.error, "err"); }
+    if (s.loading) { setStatus("busy", `Loading ${label(s.loading)} on ${s.device}…`); $("run").disabled = true; }
+    else if (cur && cur.loaded) { setStatus("ok", `Ready · ${s.device}`); $("run").disabled = false; }
+    else if (cur && !s.error) { try { await api("/api/load", { pair: cur.name }); } catch (e) { msg(e.message, "err"); } }
+    setTimeout(poll, s.loading || !(cur && cur.loaded) ? 800 : 4000);
+  } catch (e) { setStatus("err", "Server not running — start START_DEMO.bat"); $("run").disabled = true; setTimeout(poll, 2000); }
+}
+function label(name) { const p = pairs.find(p => p.name === name); return p ? p.label : name; }
+function currentPair() { return pairs.find(p => p.name === $("pair").value) || pairs[0]; }
+function fillPairs() {
+  const sel = $("pair");
+  if (!sel.options.length) {
+    for (const p of pairs) sel.add(new Option(p.label, p.name));
+    if (wanted) sel.value = wanted;
+    fillDrafts(); fillChips();
+  }
+}
+function fillDrafts() {
+  const p = currentPair(), d = $("draft"); d.innerHTML = "";
+  for (const n of (p ? p.drafts : [])) d.add(new Option(n === "distilled" ? "distilled (trained to copy the big model)" : "plain", n));
+  if (p && p.drafts.includes("distilled")) d.value = "distilled";
+}
+function fillChips() {
+  const p = currentPair(), c = $("chips"); c.innerHTML = "";
+  for (const ex of (EXAMPLES[p ? p.name : "gpt2"] || [])) {
+    const b = document.createElement("button"); b.className = "chip"; b.textContent = ex.replace(/\n/g, " ↵ ");
+    b.onclick = () => { $("prompt").value = ex; run(); }; c.appendChild(b);
+  }
+}
+$("pair").onchange = async () => {
+  fillDrafts(); fillChips();
+  const p = currentPair();
+  if (p && !p.loaded) { try { await api("/api/load", { pair: p.name }); msg(""); } catch (e) { msg(e.message, "err"); } }
+  if (p && EXAMPLES[p.name]) $("prompt").value = EXAMPLES[p.name][0];
+};
+$("gamma").oninput = () => $("gammaV").textContent = $("gamma").value;
+$("temp").oninput = () => { const t = +$("temp").value; $("tempV").textContent = t;
+  $("tempHint").textContent = t === 0 ? "(always the most likely word)" : "(more varied)"; };
+for (const b of $("length").children) b.onclick = () => { for (const x of $("length").children) x.classList.remove("on"); b.classList.add("on"); };
+$("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); run(); } });
+$("run").onclick = run;
+$("replay").onclick = () => last && race(last);
+$("showRounds").onchange = () => $("sText").classList.toggle("rounds", $("showRounds").checked);
+
+async function run() {
+  if ($("run").disabled) return;
+  const len = document.querySelector("#length .on");
+  const body = { pair: $("pair").value, draft: $("draft").value, prompt: $("prompt").value,
+    gamma: +$("gamma").value, temperature: +$("temp").value, until: len.dataset.until,
+    max_new_tokens: +len.dataset.max, seed: Math.floor(Math.random() * 1e6) };
+  $("run").disabled = true; $("run").textContent = "Running…"; $("replay").disabled = true;
+  msg("Running both methods on the GPU (speculative, then normal)…");
+  const t0 = performance.now();
+  try {
+    last = await api("/api/complete", body);
+    msg(`Measured in ${((performance.now() - t0) / 1000).toFixed(1)} s. Replaying both runs at the speed they ran:`);
+    race(last); $("replay").disabled = false;
+  } catch (e) { msg(e.message, "err"); }
+  finally { $("run").disabled = false; $("run").textContent = "Run"; }
+}
+
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function visibleCount(timeline, t) { let n = 0; for (const [ts, k] of timeline) { if (ts <= t) n = k; else break; } return n; }
+function render(el, prompt, pieces, upto, sources, rounds) {
+  let h = `<span class="p">${esc(prompt)}</span>`;
+  for (let i = 0; i < upto; i++) {
+    const cls = sources ? (sources[i] === "draft" ? " d" : " g") : "";
+    const rs = rounds && (i === 0 || rounds[i] !== rounds[i - 1]) ? " rs" : "";
+    h += `<span class="t${cls}${rs}">${esc(pieces[i])}</span>`;
+  }
+  el.innerHTML = h;
+}
+function race(r) {
+  if (anim) cancelAnimationFrame(anim);
+  const S = r.spec, N = r.normal, end = Math.max(S.seconds, N.seconds), start = performance.now();
+  $("sText").classList.toggle("rounds", $("showRounds").checked);
+  showStats(r, false);
+  const step = () => {
+    const t = (performance.now() - start) / 1000;
+    for (const [lane, d, src] of [["s", S, true], ["n", N, false]]) {
+      const tt = Math.min(t, d.seconds), k = visibleCount(d.timeline, tt);
+      render($(lane + "Text"), r.prompt_text, d.pieces, k, src ? S.sources : null, src ? S.rounds : null);
+      $(lane + "Clock").textContent = tt.toFixed(2) + " s";
+      $(lane + "Bar").style.width = (100 * tt / end) + "%";
+      $(lane + "Info").innerHTML = t >= d.seconds
+        ? `<b>${d.tok_per_s.toFixed(1)} tok/s</b> · ${d.tokens} tokens · done`
+        : `${k} / ${d.tokens} tokens`;
+    }
+    if (t < end) anim = requestAnimationFrame(step); else showStats(r, true);
+  };
+  step();
+}
+function showStats(r, done) {
+  const S = r.spec, N = r.normal;
+  const sp = r.speedup; $("kSpeed").textContent = done && sp ? sp.toFixed(2) + "×" : "…";
+  $("kSpeed").className = "v" + (done && sp ? (sp >= 1 ? " good" : " bad") : "");
+  $("kSpeedN").textContent = done ? `${S.tok_per_s.toFixed(1)} vs ${N.tok_per_s.toFixed(1)} tokens/s` : "tokens/s, speculative ÷ normal";
+  $("kPass").textContent = `${S.target_calls} vs ${N.target_calls}`;
+  $("kPassN").textContent = `${(S.tokens / Math.max(1, S.target_calls)).toFixed(2)} tokens per pass (normal: 1.00)`;
+  $("kAcc").textContent = S.accept_rate == null ? "–" : Math.round(100 * S.accept_rate) + "%";
+  $("kAccN").textContent = `${S.free_tokens} of ${S.tokens} tokens were free · γ = ${r.gamma}`;
+  const greedy = r.temperature === 0;
+  $("kSame").textContent = r.same_text ? "✓ identical" : (greedy ? "✗ differs" : "different sample");
+  $("kSame").className = "v" + (r.same_text ? " good" : (greedy ? " bad" : ""));
+  $("kSameN").textContent = greedy ? (r.same_text ? "greedy output matches exactly" : "fp16 rounding flipped a near-tie")
+                                   : "temperature > 0: both are valid random samples";
+}
+
+const urlPair = new URLSearchParams(location.search).get("pair");
+if (urlPair) wanted = urlPair;
+poll();
+</script>
+</body>
+</html>

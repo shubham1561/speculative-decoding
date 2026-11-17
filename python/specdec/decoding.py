@@ -36,6 +36,7 @@ class GenStats:
     rejected: int = 0              # rounds that ended with a rejection
     accepted_per_round: list = field(default_factory=list)
     seconds: float = 0.0
+    timeline: list = field(default_factory=list)   # (seconds since start, new tokens so far) per step
 
     @property
     def acceptance_rate(self):
@@ -66,6 +67,23 @@ class GenResult:
 def _sync(device):
     if isinstance(device, torch.device) and device.type == "cuda":
         torch.cuda.synchronize(device)
+
+
+@torch.no_grad()
+def warm_up(lms, seconds=0.3):
+    """Keep the GPU busy for a moment so it is at full clock speed before a timed run.
+
+    Laptop GPUs drop to a low clock while idle (e.g. while you type); whichever method
+    runs first would otherwise pay for the ramp-up. Does nothing on the CPU.
+    """
+    lms = [lm for lm in lms if lm.device.type == "cuda"]
+    if not lms:
+        return
+    end = time.perf_counter() + seconds
+    while time.perf_counter() < end:
+        for lm in lms:
+            lm.forward([0], lm.new_cache())
+        torch.cuda.synchronize()
 
 
 def _stop_set(eos_id, stop_ids):
@@ -116,6 +134,7 @@ def autoregressive_generate(target, prompt, max_new_tokens, temperature=0.0, top
             t = int(torch.multinomial(warp_probs(logits, temperature, top_k, top_p), 1, generator=generator))
         seq.append(t)
         new.append(t)
+        stats.timeline.append((time.perf_counter() - t0, len(new)))
         if t in stops:
             break
     _sync(target.device)
@@ -235,6 +254,8 @@ def speculative_generate(target, draft, prompt, max_new_tokens, gamma=4, tempera
             cut = len(seq) - len(kept) + hit + 1
             sources = sources[: cut - start_len]
             seq = seq[:cut]
+        stats.timeline.append((time.perf_counter() - t0, len(seq) - start_len))
+        if hit is not None:
             break
 
     _sync(dev)
